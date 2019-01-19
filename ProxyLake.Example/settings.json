@@ -1,0 +1,16 @@
+{
+  "proxyConfiguration": {
+    "defaultHandler": {
+      "proxies": [
+        {
+          "host":  "http://14.142.122.134",
+          "port": 8080
+        },
+        {
+          "host":  "http://14.142.122.134",
+          "port": 8080
+        }
+      ]
+    }
+  }
+}

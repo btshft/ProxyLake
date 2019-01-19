@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProxyLake.Example", "ProxyLake.Example\ProxyLake.Example.csproj", "{99582F82-2BFF-413A-BB6B-33BBE65E9486}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProxyLake.Http", "ProxyLake.Http\ProxyLake.Http.csproj", "{F01B7F72-5528-4E34-BED3-F5B3794D3E6B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{99582F82-2BFF-413A-BB6B-33BBE65E9486}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{99582F82-2BFF-413A-BB6B-33BBE65E9486}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{99582F82-2BFF-413A-BB6B-33BBE65E9486}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{99582F82-2BFF-413A-BB6B-33BBE65E9486}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F01B7F72-5528-4E34-BED3-F5B3794D3E6B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F01B7F72-5528-4E34-BED3-F5B3794D3E6B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F01B7F72-5528-4E34-BED3-F5B3794D3E6B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F01B7F72-5528-4E34-BED3-F5B3794D3E6B}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
