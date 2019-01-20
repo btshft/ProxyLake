@@ -1,20 +1,20 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Text;
 using System.Threading;
-using Microsoft.Extensions.Configuration;
+using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ProxyLake.Http;
-using ProxyLake.Http.Abstractions;
 using ProxyLake.Http.DependencyInjection;
 
 namespace ProxyLake.Example
 {
+    
+    
     class TestDefinitionProvider : IHttpProxyDefinitionProvider
     {
-        public IEnumerable<HttpProxyDefinition> GetProxyDefinitions()
+        public IEnumerable<HttpProxyDefinition> GetProxyDefinitions(string name)
         {
             return new[]
             {
@@ -38,8 +38,8 @@ namespace ProxyLake.Example
     }
     
     class Program
-    {
-        static void Main(string[] args)
+    {       
+        static async Task Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
 
@@ -52,20 +52,33 @@ namespace ProxyLake.Example
             var serviceProvider = serviceCollection.BuildServiceProvider();
 
             var httpProxyFactory = serviceProvider.GetService<IHttpProxyClientFactory>();
-            var client = httpProxyFactory.CreateProxyClient();
-
-            while (true)
+            Action action = () =>
             {
-                var result = client.GetAsync("https://api.ipify.org?format=json")
-                    .GetAwaiter().GetResult()
-                    .Content.ReadAsStringAsync().GetAwaiter().GetResult();
-            
-                Console.WriteLine($"Answer: {result}");
-                
-                Thread.Sleep(TimeSpan.FromSeconds(45));
+                while (true)
+                {
+                    using (var client = httpProxyFactory.CreateClient())
+                    {
+                        var result = client.GetAsync("https://api.ipify.org?format=json")
+                            .GetAwaiter().GetResult()
+                            .Content.ReadAsStringAsync().GetAwaiter().GetResult();
+
+                        Console.WriteLine($"Answer: {result}");
+                    }
+                    
+                    Thread.Sleep(TimeSpan.FromSeconds(30));
+                }
+            };
+
+            var threads = new[]
+            {
+                new Thread(new ThreadStart(action)),
+                new Thread(new ThreadStart(action)),
+            };
+
+            foreach (var thread in threads)
+            {
+                thread.Start();
             }
-            
-            client.Dispose();
         }
     }
 }

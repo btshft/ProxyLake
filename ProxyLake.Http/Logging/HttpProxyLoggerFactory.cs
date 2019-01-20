@@ -2,11 +2,11 @@ using Microsoft.Extensions.Logging;
 
 namespace ProxyLake.Http.Logging
 {
-    internal class ProxyLoggerFactory : IHttpProxyLoggerFactory
+    internal class HttpProxyLoggerFactory : IHttpProxyLoggerFactory
     {
         private readonly ILoggerFactory _loggerFactory;
 
-        public ProxyLoggerFactory(ILoggerFactory loggerFactory)
+        public HttpProxyLoggerFactory(ILoggerFactory loggerFactory)
         {
             _loggerFactory = loggerFactory;
         }

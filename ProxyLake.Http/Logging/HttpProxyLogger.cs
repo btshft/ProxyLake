@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 
@@ -45,12 +44,6 @@ namespace ProxyLake.Http.Logging
         private string FormatMessage(string message)
         {
             return $"Thread id: {Thread.CurrentThread.ManagedThreadId}{Environment.NewLine}Message: {message}";
-        }
-
-        [Conditional("DEBUG"), DebuggerStepThrough]
-        internal static void LogDebug(ILogger logger, string message)
-        {
-            logger.LogDebug(message);
         }
     }
 }

@@ -2,16 +2,16 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 
-namespace ProxyLake.Http.Utilities
+namespace ProxyLake.Http.Utils
 {
     internal static class RecordLocking
     {
         private static readonly object OuterLock = new object();
-        private static readonly List<RecordLock> ProxyLocks = new List<RecordLock>();
+        private static readonly List<RecordLock> RecordLocks = new List<RecordLock>();
 
-        public static IDisposable AcquireLock(Guid proxyId)
+        public static IDisposable AcquireLock(Guid recordId)
         {
-            return new RecordLock(proxyId);
+            return new RecordLock(recordId);
         }
         
         private class RecordLock : IDisposable
@@ -25,12 +25,12 @@ namespace ProxyLake.Http.Utilities
 
                 lock (OuterLock)
                 {
-                    var existingLock = ProxyLocks.Find(l => l._recordId == recordId);
+                    var existingLock = RecordLocks.Find(l => l._recordId == recordId);
                     _itemLock = existingLock == null
                         ? new object()
                         : existingLock._itemLock;
                     
-                    ProxyLocks.Add(this);
+                    RecordLocks.Add(this);
                 }
                 
                 Monitor.Enter(_itemLock);
@@ -44,7 +44,7 @@ namespace ProxyLake.Http.Utilities
 
                 lock (OuterLock)
                 {
-                    ProxyLocks.Remove(this);
+                    RecordLocks.Remove(this);
                 }
             }
         }

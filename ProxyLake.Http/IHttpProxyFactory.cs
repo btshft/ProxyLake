@@ -1,4 +1,4 @@
-namespace ProxyLake.Http.Abstractions
+namespace ProxyLake.Http
 {
     public interface IHttpProxyFactory
     {

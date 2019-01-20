@@ -1,7 +1,7 @@
 using System;
 using System.Net;
 
-namespace ProxyLake.Http.Abstractions
+namespace ProxyLake.Http
 {
     public interface IHttpProxy : IWebProxy
     {
