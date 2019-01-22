@@ -27,8 +27,6 @@ namespace ProxyLake.Http.ScheduledActivities
             int collected = 0,
                 handlersCount = _handlers.Count;
 
-            GC.Collect();
-            
             for (var i = 0; i < handlersCount; i++)
             {
                 if (!_handlers.TryDequeue(out var deadHandler))
