@@ -14,13 +14,16 @@ namespace ProxyLake.Http.Utils
         {
             get
             {
+                IReadOnlyCollection<T> tempCollection;
                 lock (_sync)
                 {
                     if (_readCollection == null)
                         _readCollection = new List<T>(_writeCollection);
 
-                    return _readCollection;
+                    tempCollection = _readCollection;
                 }
+
+                return tempCollection;
             }
         }
         
