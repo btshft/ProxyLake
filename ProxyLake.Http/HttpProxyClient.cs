@@ -13,8 +13,7 @@ namespace ProxyLake.Http
         public HttpProxyClient(HttpProxyHandlerState state, IHttpProxyLoggerFactory loggerFactory)
             : base(state.Handler, disposeHandler: false)
         {
-            _httpProxyState = new WeakReference<HttpProxyState>(
-                state.ProxyState);
+            _httpProxyState = new WeakReference<HttpProxyState>(state.ProxyState);
             _logger = loggerFactory.CreateLogger($"{nameof(HttpProxyClient)}");
         }
 

@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace ProxyLake.Http
+namespace ProxyLake.Http.Features
 {
-    internal class RoundRobinHttpProxyRotationService : IHttpProxyRotationService
+    internal class RoundRobinHttpProxyRotationFeature : IHttpProxyRotationFeature
     {
         /// <inheritdoc />
         public bool TryRotate(IHttpProxy currentProxy, IReadOnlyCollection<IHttpProxyState> aliveProxies,

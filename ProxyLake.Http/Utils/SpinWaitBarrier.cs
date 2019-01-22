@@ -6,35 +6,30 @@ namespace ProxyLake.Http.Utils
     internal static class SpinWaitBarrier
     {
         private static readonly object Lock = new object();
-        private static int _failedThreads = 0;
+        private static SpinWait _wait = new SpinWait();
 
-        public static IDisposable Create(int spinWaitMultiplier)
+        public static IDisposable Create()
         {
-            return new WaitBarrier(spinWaitMultiplier);
+            return new WaitBarrier();
         }
 
         private class WaitBarrier : IDisposable
-        {           
-            public WaitBarrier(int multiplier)
+        {
+            public WaitBarrier()
             {
-                if (multiplier < 1)
-                    multiplier = 1;
-                
                 if (Monitor.TryEnter(Lock)) 
                     return;
                 
-                Interlocked.Increment(ref _failedThreads);
-                Thread.SpinWait(_failedThreads * multiplier);
-                Interlocked.Decrement(ref _failedThreads);
+                _wait.SpinOnce();
             }
             
             public void Dispose()
             {
-                if (Monitor.IsEntered(Lock))
-                {
-                    Monitor.Exit(Lock);
-                    Interlocked.Exchange(ref _failedThreads, 0);
-                }
+                if (!Monitor.IsEntered(Lock))
+                    return;
+                
+                _wait.Reset();
+                Monitor.Exit(Lock);
             }
         }
     }

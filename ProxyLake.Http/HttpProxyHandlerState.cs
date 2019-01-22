@@ -5,25 +5,23 @@ namespace ProxyLake.Http
 {
     internal sealed class HttpProxyHandlerState
     {
-        private readonly Lazy<HttpClientHandler> _handlerFactory;
-
-        public bool IsHandlerCreated => _handlerFactory.IsValueCreated;
-        public HttpClientHandler Handler => _handlerFactory.Value;
+        private readonly Lazy<HttpProxyTrackingHandler> _handlerFactory;
+        public HttpProxyTrackingHandler Handler => _handlerFactory.Value;
         public HttpProxyState ProxyState { get; }
 
         public HttpProxyHandlerState(HttpProxyState proxyState)
         {
             ProxyState = proxyState;
-            _handlerFactory = new Lazy<HttpClientHandler>(CreateHandler);
+            _handlerFactory = new Lazy<HttpProxyTrackingHandler>(CreateHandler);
         }
 
-        private HttpClientHandler CreateHandler()
+        private HttpProxyTrackingHandler CreateHandler()
         {
-            return new HttpClientHandler
+            return new HttpProxyTrackingHandler(new HttpClientHandler
             {
                 Proxy = ProxyState.Proxy,
                 UseProxy = true
-            };
+            });
         }
     }
 }
