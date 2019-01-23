@@ -15,10 +15,10 @@ using ProxyLake.Http.Utils;
 namespace ProxyLake.Http
 {
     // TODO: on-create health check (maybe configurable?), background proxy refill, proxy wait logic, parallel health check (?)
-    internal class DefaultHttpProxyClientFactory : IHttpProxyClientFactory
+    internal class DefaultHttpProxyClientFactory : IHttpProxyClientFactory, IDisposable
     {
         private static readonly TimeSpan DefaultCleanupPeriod = TimeSpan.FromSeconds(15);
-        
+
         private readonly IHttpProxyDefinitionFactory _definitionFactory;
         private readonly IHttpProxyFactory _httpProxyFactory;
         private readonly IHttpProxyLoggerFactory _loggerFactory;
@@ -27,6 +27,7 @@ namespace ProxyLake.Http
 
         private readonly IHttpProxyFeatureProvider<IHttpProxyRotationFeature> _rotationFeatureProvider;
         private readonly IHttpProxyFeatureProvider<IHttpProxyHealthCheckFeature> _healthCheckFeatureProvider;
+        private readonly IHttpProxyFeatureProvider<IHttpProxyRefill> _proxyRefillFeatureProvider;
 
         private readonly ConcurrentDictionary<string, Lazy<HttpProxyClientState>> _clientStates;
         private readonly ConcurrentDictionary<string, IHttpProxy> _lastAcquiredProxies;
@@ -38,24 +39,27 @@ namespace ProxyLake.Http
             IHttpProxyDefinitionFactory definitionFactory,
             IHttpProxyFactory httpProxyFactory,
             IHttpProxyLoggerFactory loggerFactory,
-            IHttpProxyFeatureProvider<IHttpProxyRotationFeature> rotationFeatureProvider, 
-            IHttpProxyFeatureProvider<IHttpProxyHealthCheckFeature> healthCheckFeatureProvider, 
+            IHttpProxyFeatureProvider<IHttpProxyRotationFeature> rotationFeatureProvider,
+            IHttpProxyFeatureProvider<IHttpProxyHealthCheckFeature> healthCheckFeatureProvider,
+            IHttpProxyFeatureProvider<IHttpProxyRefill> proxyRefillFeatureProvider,
             IOptionsMonitor<HttpProxyClientFactoryOptions> optionsMonitor)
         {
             _loggerFactory = loggerFactory;
             _rotationFeatureProvider = rotationFeatureProvider;
             _healthCheckFeatureProvider = healthCheckFeatureProvider;
             _optionsMonitor = optionsMonitor;
+            _proxyRefillFeatureProvider = proxyRefillFeatureProvider;
             _definitionFactory = definitionFactory;
             _httpProxyFactory = httpProxyFactory;
             _logger = loggerFactory.CreateLogger(typeof(DefaultHttpProxyClientFactory));
             _clientStates = new ConcurrentDictionary<string, Lazy<HttpProxyClientState>>(
                 StringComparer.InvariantCultureIgnoreCase);
 
-            _lastAcquiredProxies = new ConcurrentDictionary<string, IHttpProxy>(StringComparer.InvariantCultureIgnoreCase);
+            _lastAcquiredProxies =
+                new ConcurrentDictionary<string, IHttpProxy>(StringComparer.InvariantCultureIgnoreCase);
 
             _deadHandlers = new ConcurrentQueue<DeadHandlerReference>();
-            _cleanupActivity = new HandlersCleanupActivity(DefaultCleanupPeriod,  _deadHandlers, loggerFactory);
+            _cleanupActivity = new HandlersCleanupActivity(DefaultCleanupPeriod, _deadHandlers, loggerFactory);
         }
 
         /// <inheritdoc />
@@ -66,105 +70,144 @@ namespace ProxyLake.Http
 
             if (!_cleanupActivity.IsRunning)
                 _cleanupActivity.Start(cancellation);
-            
+
             var handlerState = AcquireHandlerState(name, cancellation);
             return new HttpProxyClient(handlerState, _loggerFactory);
         }
 
         private HttpProxyHandlerState AcquireHandlerState(string name, CancellationToken cancellation)
         {
-            using (SpinWaitBarrier.Create())
+            var spin = new SpinWait();
+            while (true)
             {
-                while (true)
+                cancellation.ThrowIfCancellationRequested();
+                spin.SpinOnce();
+
+                var handlerStates = GetProxyClientState().HandlerStates;
+                var lastAcquiredProxy = _lastAcquiredProxies.TryGetValue(name, out var acquiredProxy)
+                    ? acquiredProxy
+                    : null;
+
+                var prevProxyId = lastAcquiredProxy?.Id;
+
+                if (handlerStates.Count == 0 ||
+                    handlerStates.Count(s => !s.ProxyState.IsProxyAcquired) == 0)
                 {
-                    cancellation.ThrowIfCancellationRequested();
+                    // TODO: Implement wait logic
+                    continue;
+                }
 
-                    var clientState = _clientStates.GetOrAdd(name, CreateClientState).Value;
-                    if (!clientState.HealthCheckActivity.IsRunning)
-                        clientState.HealthCheckActivity.Start(cancellation);
-                    
-                    var handlerStates = _clientStates.GetOrAdd(name, CreateClientState).Value.HandlerStates;
+                var proxyStates = handlerStates.Select(s => s.ProxyState).ToArray();
+                var rotationFeature = _rotationFeatureProvider.GetFeature(name);
 
-                    var lastAcquiredProxy = _lastAcquiredProxies.TryGetValue(name, out var acquiredProxy)
-                        ? acquiredProxy
-                        : null;
-
-                    var prevProxyId = lastAcquiredProxy?.Id;
-
-                    if (handlerStates.Count == 0 ||
-                        handlerStates.Count(s => !s.ProxyState.IsProxyAcquired) == 0)
+                if (rotationFeature.TryRotate(lastAcquiredProxy, proxyStates, out var proxyId))
+                {
+                    using (RecordLocking.AcquireLock(proxyId))
                     {
-                        // TODO: Implement wait logic
-                        continue;
+                        var handler = TryAcquireHandlerState(prevProxyId, proxyId, handlerStates);
+                        if (handler != null)
+                            return handler;
                     }
-
-                    var proxyStates = handlerStates.Select(s => s.ProxyState).ToArray();
-                    var rotationFeature = _rotationFeatureProvider.GetFeature(name);
-
-                    if (rotationFeature.TryRotate(lastAcquiredProxy, proxyStates, out var proxyId))
-                    {
-                        using (RecordLocking.AcquireLock(proxyId))
-                        {
-                            var rotatedProxy = handlerStates.FirstOrDefault(s => s.ProxyState.Proxy.Id == proxyId);
-                            if (rotatedProxy != null && rotatedProxy.ProxyState.TryAcquireProxy())
-                            {
-                                _lastAcquiredProxies.AddOrUpdate(
-                                    key: name,
-                                    addValueFactory: _ =>
-                                    {
-                                        _logger.LogDebug($"Acquired first proxy '{rotatedProxy.ProxyState.Proxy.Id}'");
-                                        return rotatedProxy.ProxyState.Proxy;
-                                    },
-                                    updateValueFactory: (_, prev) =>
-                                    {
-                                        _logger.LogDebug(
-                                            $"Proxy rotated '{prev.Id}' -> '{rotatedProxy.ProxyState.Proxy.Id}'");
-                                        prevProxyId = prev.Id;
-                                        return rotatedProxy.ProxyState.Proxy;
-                                    });
-
-                                return rotatedProxy;
-                            }
-
-                            if (prevProxyId.HasValue)
-                            {
-                                _logger.LogDebug(rotatedProxy == null
-                                    ? $"Unable to rotate proxy '{prevProxyId}' -> '{proxyId}' - seems like is was GC'ed"
-                                    : $"Unable to rotate proxy '{prevProxyId}' -> '{proxyId}' - it's stolen by someone else");
-                            }
-                            else
-                            {
-                                _logger.LogDebug(rotatedProxy == null
-                                    ? $"Unable to acquire proxy '{proxyId}' - seems like is was GC'ed"
-                                    : $"Unable to acquire proxy '{proxyId}' - it's stolen by someone else");
-                            }
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogDebug($"Unable to acquire new proxy. Last acquired: '{prevProxyId}'");
-                    }
+                }
+                else
+                {
+                    _logger.LogDebug($"Proxy rotation failed. Last acquired: '{prevProxyId}'");
                 }
             }
 
-            Lazy<HttpProxyClientState> CreateClientState(string _)
+            HttpProxyClientState GetProxyClientState()
             {
-                return new Lazy<HttpProxyClientState>(() =>
-                {
-                    var handlerStates = CreateProxyHandlerStates(name, cancellation)
-                        .AsCopyOnWriteCollection();
+                var clientState = _clientStates.GetOrAdd(name, LazyProxyClientState).Value;
 
-                    var healthCheckFeature = _healthCheckFeatureProvider.GetFeature(name);
-                    var options = _optionsMonitor.Get(name);
-                    
-                    var healthCheckActivity = !(healthCheckFeature is NullHttpProxyHealthCheckFeature)
-                        ? new ProxyHealthCheckActivity(
-                            options.HealthCheckPeriod, handlerStates, _deadHandlers, _loggerFactory, healthCheckFeature)
-                        : (IScheduledActivity) new NullScheduledActivity();
-                    
-                    return new HttpProxyClientState(handlerStates, healthCheckActivity);
-                });
+                if (!clientState.HealthCheckActivity.IsRunning)
+                    clientState.HealthCheckActivity.Start(cancellation);
+
+                if (!clientState.RefillActivity.IsRunning)
+                    clientState.RefillActivity.Start(cancellation);
+
+                return clientState;
             }
+
+            HttpProxyHandlerState TryAcquireHandlerState(
+                Guid? prevProxyId, Guid newProxyId, IEnumerable<HttpProxyHandlerState> handlerStates)
+            {
+                var rotatedHandler = handlerStates.FirstOrDefault(s => s.ProxyState.Proxy.Id == newProxyId);
+                if (rotatedHandler != null && rotatedHandler.ProxyState.TryAcquireProxy())
+                {
+                    _lastAcquiredProxies.AddOrUpdate(
+                        key: name,
+                        addValueFactory: _ =>
+                        {
+                            _logger.LogDebug($"Acquired first proxy '{rotatedHandler.ProxyState.Proxy.Id}'");
+                            return rotatedHandler.ProxyState.Proxy;
+                        },
+                        updateValueFactory: (_, prev) =>
+                        {
+                            _logger.LogDebug(
+                                $"Proxy rotated '{prev.Id}' -> '{rotatedHandler.ProxyState.Proxy.Id}'");
+                            prevProxyId = prev.Id;
+                            return rotatedHandler.ProxyState.Proxy;
+                        });
+
+                    return rotatedHandler;
+                }
+
+                #if DEBUG
+                
+                if (prevProxyId.HasValue)
+                {
+                    _logger.LogDebug(rotatedHandler == null
+                        ? $"Unable to switch proxy '{prevProxyId}' -> '{newProxyId}' - new proxy was collected by GC"
+                        : $"Unable to switch proxy '{prevProxyId}' -> '{newProxyId}' - new proxy was lost in data-race");
+                }
+                else
+                {
+                    _logger.LogDebug(rotatedHandler == null
+                        ? $"Unable to acquire proxy '{newProxyId}' - GC already collect it"
+                        : $"Unable to acquire proxy '{newProxyId}' - it's lost in data-race ");
+                }
+                
+                #endif
+
+                return null;
+            }
+
+            Lazy<HttpProxyClientState> LazyProxyClientState(string _)
+            {
+                return new Lazy<HttpProxyClientState>(
+                    () => CreateProxyClientState(name, cancellation),
+                    LazyThreadSafetyMode.ExecutionAndPublication);
+            }
+        }
+
+        private HttpProxyClientState CreateProxyClientState(string name, CancellationToken cancellation)
+        {
+            var handlerStates = CreateProxyHandlerStates(name, cancellation)
+                .AsCopyOnWriteCollection();
+
+            var healthCheckFeature = _healthCheckFeatureProvider.GetFeature(name);
+            var refillProxyFeature = _proxyRefillFeatureProvider.GetFeature(name);
+
+            var options = _optionsMonitor.Get(name);
+            options.EnsureValid();
+
+            var healthCheckActivity = healthCheckFeature is NullHttpProxyHealthCheck
+                ? (IScheduledActivity) new NullScheduledActivity()
+                : new ProxyHealthCheckActivity(
+                    options.HealthCheckPeriod, _loggerFactory, healthCheckFeature,
+                    s => RemoveProxyHandlerState(name, s),
+                    () => GetProxyHandlerStates(name),
+                    InsertDeadHandler);
+
+            var refillActivity = refillProxyFeature is NullHttpProxyRefill
+                ? (IScheduledActivity) new NullScheduledActivity()
+                : new ProxyRefillActivity(
+                    options.ProxyRefillPeriod, options, _loggerFactory,
+                    () => GetAliveProxies(name),
+                    p => InsertProxy(name, p),
+                    refillProxyFeature);
+
+            return new HttpProxyClientState(handlerStates, healthCheckActivity, refillActivity);
         }
 
         private List<HttpProxyHandlerState> CreateProxyHandlerStates(
@@ -186,6 +229,63 @@ namespace ProxyLake.Http
             }
 
             return handlerStates;
+        }
+
+        private IReadOnlyCollection<IHttpProxy> GetAliveProxies(string name)
+        {
+            if (_clientStates.TryGetValue(name, out var state))
+            {
+                return state.Value.HandlerStates
+                    .Select(s => s.ProxyState.Proxy).ToArray();
+            }
+
+            return Array.Empty<IHttpProxy>();
+        }
+
+        private void InsertProxy(string name, IHttpProxy proxy)
+        {
+            if (proxy == null)
+                throw new ArgumentNullException(nameof(proxy));
+
+            if (_clientStates.TryGetValue(name, out var state))
+            {
+                state.Value.HandlerStates.Add(
+                    new HttpProxyHandlerState(new HttpProxyState(proxy)));
+            }
+        }
+
+        private bool RemoveProxyHandlerState(string name, HttpProxyHandlerState state)
+        {
+            if (state == null)
+                throw new ArgumentNullException(nameof(state));
+
+            return _clientStates.TryGetValue(name, out var clientState) &&
+                   clientState.Value.HandlerStates.Remove(state);
+        }
+
+        private void InsertDeadHandler(DeadHandlerReference reference)
+        {
+            _deadHandlers.Enqueue(reference);
+        }
+
+        private IReadOnlyCollection<HttpProxyHandlerState> GetProxyHandlerStates(string name)
+        {
+            return _clientStates.TryGetValue(name, out var state)
+                ? state.Value.HandlerStates.ToArray()
+                : Array.Empty<HttpProxyHandlerState>();
+        }
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            _loggerFactory?.Dispose();
+            _cleanupActivity?.Dispose();
+
+            foreach (var state in _clientStates.Values)
+            {
+                state.Value.RefillActivity?.Dispose();
+                state.Value.HealthCheckActivity?.Dispose();
+            }
         }
     }
 }

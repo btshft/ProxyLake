@@ -8,5 +8,8 @@ namespace ProxyLake.Http.ScheduledActivities
         public void Start(CancellationToken cancellation) { }
 
         public void Stop() { }
+
+        public void Dispose()
+        { }
     }
 }

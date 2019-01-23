@@ -8,12 +8,16 @@ namespace ProxyLake.Http
         public CopyOnWriteCollection<HttpProxyHandlerState> HandlerStates { get; }
         public IScheduledActivity HealthCheckActivity { get; }
         
+        public IScheduledActivity RefillActivity { get; }
+        
         public HttpProxyClientState(
             CopyOnWriteCollection<HttpProxyHandlerState> handlerStates, 
-            IScheduledActivity healthCheckActivity)
+            IScheduledActivity healthCheckActivity, 
+            IScheduledActivity refillActivity)
         {
             HandlerStates = handlerStates;
             HealthCheckActivity = healthCheckActivity;
+            RefillActivity = refillActivity;
         }
     }
 }

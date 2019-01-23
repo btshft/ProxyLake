@@ -2,7 +2,7 @@ using System.Threading;
 
 namespace ProxyLake.Http.Features
 {
-    internal class NullHttpProxyHealthCheckFeature : IHttpProxyHealthCheckFeature
+    internal class NullHttpProxyHealthCheck : IHttpProxyHealthCheckFeature
     {
         public bool IsAlive(IHttpProxy proxy, CancellationToken cancellation)
         {

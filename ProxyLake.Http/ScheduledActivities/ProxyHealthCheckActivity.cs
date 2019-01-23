@@ -1,50 +1,55 @@
 using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using ProxyLake.Http.Features;
 using ProxyLake.Http.Logging;
-using ProxyLake.Http.Utils;
 
 namespace ProxyLake.Http.ScheduledActivities
 {
     internal class ProxyHealthCheckActivity : ScheduledActivity
     {
-        private readonly CopyOnWriteCollection<HttpProxyHandlerState> _handlerStates;
-        private readonly ConcurrentQueue<DeadHandlerReference> _deadHandlers;
         private readonly ILogger _logger;
         private readonly IHttpProxyHealthCheckFeature _healthCheck;
+        private readonly Func<HttpProxyHandlerState, bool> _removeHandler;
+        private readonly Func<IReadOnlyCollection<HttpProxyHandlerState>> _handlerAccessor;
+        private readonly Action<DeadHandlerReference> _deadHandlerInsertion;
 
         public ProxyHealthCheckActivity(
             TimeSpan period,
-            CopyOnWriteCollection<HttpProxyHandlerState> handlerStates,
-            ConcurrentQueue<DeadHandlerReference> deadHandlers,
             IHttpProxyLoggerFactory loggerFactory, 
-            IHttpProxyHealthCheckFeature healthCheck) : base(period, period)
+            IHttpProxyHealthCheckFeature healthCheck, 
+            Func<HttpProxyHandlerState, bool> removeHandler, 
+            Func<IReadOnlyCollection<HttpProxyHandlerState>> handlerAccessor, 
+            Action<DeadHandlerReference> deadHandlerInsertion) : base(period, period)
         {
-            _handlerStates = handlerStates;
             _logger = loggerFactory.CreateLogger(typeof(ProxyHealthCheckActivity));
-            _deadHandlers = deadHandlers;
+
             _healthCheck = healthCheck;
+            _removeHandler = removeHandler;
+            _handlerAccessor = handlerAccessor;
+            _deadHandlerInsertion = deadHandlerInsertion;
         }
 
         /// <inheritdoc />
         protected override void Execute(CancellationToken cancellation)
         {
-            if (_handlerStates.Count == 0)
+            var handlerStates = _handlerAccessor();
+            
+            if (handlerStates.Count == 0)
                 return;
 
-            int removed = 0, total = _handlerStates.Count;
-            foreach (var state in _handlerStates)
+            int removed = 0, total = handlerStates.Count;
+            foreach (var state in handlerStates)
             {
                 try
                 {
                     if (_healthCheck.IsAlive(state.ProxyState.Proxy, cancellation)) 
                         continue;
                     
-                    if (_handlerStates.Remove(state))
+                    if (_removeHandler(state))
                     {
-                        _deadHandlers.Enqueue(new DeadHandlerReference(state));
+                        _deadHandlerInsertion(new DeadHandlerReference(state));
                         removed++;
                     }
                     else

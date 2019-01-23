@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Text;
 using System.Threading;
@@ -13,6 +14,22 @@ using ProxyLake.Http.Features;
 
 namespace ProxyLake.Example
 {
+    class NullHealthCheck : IHttpProxyHealthCheckFeature
+    {
+        private readonly ILogger _logger;
+
+        public NullHealthCheck(ILoggerFactory loggerFactory)
+        {
+            _logger = loggerFactory.CreateLogger(typeof(NullHealthCheck));
+        }
+
+        public bool IsAlive(IHttpProxy proxy, CancellationToken cancellation)
+        {
+            _logger.LogInformation("Null health check called");
+            return true;
+        }
+    }
+    
     class PingHealthCheck : IHttpProxyHealthCheckFeature
     {
         private readonly ILogger _logger;
@@ -86,28 +103,58 @@ namespace ProxyLake.Example
 
             serviceCollection
                 .AddLogging(o => o.AddConsole().SetMinimumLevel(LogLevel.Debug))
-                .AddDefaultHttpProxyClient<TestDefinitionProvider, PingHealthCheck>();
+                .AddDefaultHttpProxyClient<TestDefinitionProvider>()
+                .UseHealthCheck<PingHealthCheck>(period: TimeSpan.FromSeconds(15));
 
             var serviceProvider = serviceCollection.BuildServiceProvider();
 
+            var logger = serviceProvider.GetService<ILoggerFactory>()
+                .CreateLogger("HTTP CLIENT LOG");
+            
             var httpProxyFactory = serviceProvider.GetService<IHttpProxyClientFactory>();
+            
             Action action = () =>
             {
                 while (true)
                 {
-                    using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
-                    using (var client = httpProxyFactory.CreateDefaultClient(cts.Token))
+                    try
                     {
-                        var result = client.GetAsync("https://api.ipify.org?format=json")
-                            .GetAwaiter().GetResult()
-                            .Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                        var creationSw = new Stopwatch();
+                        var requestSw = new Stopwatch();
+                        using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+                        {
+                            creationSw.Start();
+                            
+                            using (var client = httpProxyFactory.CreateDefaultClient(cts.Token))
+                            {
+                                creationSw.Stop();
+                                requestSw.Start();
+                                
+                                var result = client.GetAsync("https://api.ipify.org?format=json")
+                                    .GetAwaiter().GetResult()
+                                    .Content.ReadAsStringAsync().GetAwaiter().GetResult();
 
-                        Console.WriteLine($"Answer: {result}");
+                                requestSw.Stop();
+                                
+                                Console.WriteLine($"Answer: {result}");
+                                Console.WriteLine(
+                                    $"Client acquire took: {creationSw.ElapsedMilliseconds} ms | " +
+                                    $"Request took: {requestSw.ElapsedMilliseconds} ms");
+                                
+                                creationSw.Reset();
+                                requestSw.Reset();
+                            }
+                        }
+
+                        Thread.Sleep(TimeSpan.FromSeconds(20));
                     }
-                    
-                    Thread.Sleep(TimeSpan.FromSeconds(60));
+                    catch (Exception e)
+                    {
+                        logger.LogError(e, "client1 failed");
+                    }
                 }
             };
+            
 
             var threads = new[]
             {
