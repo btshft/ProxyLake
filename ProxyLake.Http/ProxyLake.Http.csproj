@@ -3,6 +3,15 @@
     <PropertyGroup>
         <TargetFramework>netstandard2.0</TargetFramework>
         <LangVersion>7.2</LangVersion>
+        <GenerateDocumentationFile>True</GenerateDocumentationFile>
+        <Title>ProxyLake</Title>
+        <Description>Http client proxy.</Description>
+        <Authors>bitshift.it@icloud.com</Authors>
+        <Copyright>Copyright © Igor Polyakov 2019</Copyright>
+        <PackageProjectUrl>https://github.com/rex-core/ProxyLake</PackageProjectUrl>
+        <PackageLicenseUrl>https://github.com/rex-core/ProxyLake/blob/master/LICENSE</PackageLicenseUrl>
+        <RepositoryUrl>https://github.com/rex-core/ProxyLake.git</RepositoryUrl>
+        <Version>0.1.0-alpha</Version>
     </PropertyGroup>
 
     <ItemGroup>
