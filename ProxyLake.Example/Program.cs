@@ -67,6 +67,33 @@ namespace ProxyLake.Example
             }
         }
     }
+
+    class TestProxyRefill : IHttpProxyRefill
+    {
+        /// <inheritdoc />
+        public IReadOnlyCollection<HttpProxyDefinition> GetProxies(
+            IReadOnlyCollection<IHttpProxy> aliveProxies, int maxProxiesCount, CancellationToken cancellation)
+        {
+            return new[]
+            {
+                new HttpProxyDefinition
+                {
+                    Host = "http://167.99.55.83",
+                    Port = 80
+                },
+                new HttpProxyDefinition
+                {
+                    Host = "http://87.248.171.169",
+                    Port = 44576
+                },                
+                new HttpProxyDefinition
+                {
+                    Host = "http://167.99.59.251",
+                    Port = 80
+                }
+            };
+        }
+    }
     
     class TestDefinitionProvider : IHttpProxyDefinitionFactory
     {
@@ -104,7 +131,8 @@ namespace ProxyLake.Example
             serviceCollection
                 .AddLogging(o => o.AddConsole().SetMinimumLevel(LogLevel.Debug))
                 .AddDefaultHttpProxyClient<TestDefinitionProvider>()
-                .UseHealthCheck<PingHealthCheck>(period: TimeSpan.FromSeconds(15));
+                .UseHealthCheck<PingHealthCheck>(period: TimeSpan.FromSeconds(15))
+                .UseRefill<TestProxyRefill>(TimeSpan.FromSeconds(15), minProxyCountInclusive: 7, 10);
 
             var serviceProvider = serviceCollection.BuildServiceProvider();
 
@@ -121,7 +149,7 @@ namespace ProxyLake.Example
                     {
                         var creationSw = new Stopwatch();
                         var requestSw = new Stopwatch();
-                        using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+                        using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
                         {
                             creationSw.Start();
                             
@@ -130,7 +158,7 @@ namespace ProxyLake.Example
                                 creationSw.Stop();
                                 requestSw.Start();
                                 
-                                var result = client.GetAsync("https://api.ipify.org?format=json")
+                                var result = client.GetAsync("https://api.ipify.org?format=json", cts.Token)
                                     .GetAwaiter().GetResult()
                                     .Content.ReadAsStringAsync().GetAwaiter().GetResult();
 

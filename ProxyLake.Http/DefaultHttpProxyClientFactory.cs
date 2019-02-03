@@ -205,7 +205,8 @@ namespace ProxyLake.Http
                     options.ProxyRefillPeriod, options, _loggerFactory,
                     () => GetAliveProxies(name),
                     p => InsertProxy(name, p),
-                    refillProxyFeature);
+                    refillProxyFeature, 
+                    _httpProxyFactory);
 
             return new HttpProxyClientState(handlerStates, healthCheckActivity, refillActivity);
         }
@@ -223,6 +224,12 @@ namespace ProxyLake.Http
             {
                 var proxy = _httpProxyFactory.CreateProxy(definition);
 
+                if (handlerStates.Any(h => h.ProxyState.Proxy.Address == proxy.Address))
+                {
+                    _logger.LogInformation($"Skipping proxy '{proxy.Address}'. It's already exists in collection");
+                    continue;
+                }
+                
                 handlerStates.Add(new HttpProxyHandlerState(new HttpProxyState(proxy)));
 
                 _logger.LogDebug($"Added proxy '{proxy.Id}' with URL '{proxy.Address}'");
@@ -249,6 +256,9 @@ namespace ProxyLake.Http
 
             if (_clientStates.TryGetValue(name, out var state))
             {
+                if (state.Value.HandlerStates.Any(s => s.ProxyState.Proxy.Address == proxy.Address))
+                    throw new Exception($"Proxy with address '{proxy.Address}' already exists");
+                
                 state.Value.HandlerStates.Add(
                     new HttpProxyHandlerState(new HttpProxyState(proxy)));
             }

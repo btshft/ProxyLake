@@ -6,10 +6,10 @@ namespace ProxyLake.Http.Features
 {
     internal class NullHttpProxyRefill : IHttpProxyRefill
     {
-        public IReadOnlyCollection<IHttpProxy> GetProxies(
+        public IReadOnlyCollection<HttpProxyDefinition> GetProxies(
             IReadOnlyCollection<IHttpProxy> aliveProxies, int maxProxiesCount, CancellationToken cancellation)
         {
-            return Array.Empty<IHttpProxy>();
+            return Array.Empty<HttpProxyDefinition>();
         }
     }
 }

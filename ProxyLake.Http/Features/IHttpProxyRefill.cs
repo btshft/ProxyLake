@@ -5,7 +5,7 @@ namespace ProxyLake.Http.Features
 {
     public interface IHttpProxyRefill : IHttpProxyFeature
     {
-        IReadOnlyCollection<IHttpProxy> GetProxies(
+        IReadOnlyCollection<HttpProxyDefinition> GetProxies(
             IReadOnlyCollection<IHttpProxy> aliveProxies, int maxProxiesCount, CancellationToken cancellation);
     }
 }
