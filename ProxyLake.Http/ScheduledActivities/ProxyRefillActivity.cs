@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ProxyLake.Http.Features;
 using ProxyLake.Http.Logging;
@@ -11,7 +12,6 @@ namespace ProxyLake.Http.ScheduledActivities
 {
     internal class ProxyRefillActivity : ScheduledActivity
     {
-        private readonly ILogger _logger;
         private readonly IHttpProxyRefill _proxyRefill;
         private readonly IHttpProxyFactory _proxyFactory;
         private readonly Func<IReadOnlyCollection<IHttpProxy>> _aliveProxyAccessor;
@@ -26,9 +26,8 @@ namespace ProxyLake.Http.ScheduledActivities
             Action<IHttpProxy> proxyInsertCallback, 
             IHttpProxyRefill proxyRefill, 
             IHttpProxyFactory proxyFactory) 
-            : base(period, period)
+            : base(period, period, loggerFactory.CreateLogger(typeof(ProxyRefillActivity)))
         {
-            _logger = loggerFactory.CreateLogger(typeof(ProxyRefillActivity));
             _options = options;
             _aliveProxyAccessor = aliveProxyAccessor;
             _proxyInsertCallback = proxyInsertCallback;
@@ -37,7 +36,7 @@ namespace ProxyLake.Http.ScheduledActivities
         }
 
         /// <inheritdoc />
-        protected override void Execute(CancellationToken cancellation)
+        protected override async Task ExecuteAsync(CancellationToken cancellation)
         {
             var exceptions = new ConcurrentQueue<Exception>();
             var proxiesAdded = 0;
@@ -51,12 +50,14 @@ namespace ProxyLake.Http.ScheduledActivities
                 if (aliveProxies.Count <= _options.MinProxyCount)
                 {
                     var requestProxiesCount = _options.MaxProxyCount - aliveProxies.Count;
-                    var proxyDefinitions = _proxyRefill.GetProxies(aliveProxies, maxProxiesCount: requestProxiesCount,
-                        cancellation);
+                    
+                    var proxyDefinitions = await _proxyRefill.GetProxiesAsync(
+                        aliveProxies, maxProxiesCount: requestProxiesCount, cancellation)
+                            .ConfigureAwait(continueOnCapturedContext: false);
 
                     if (proxyDefinitions == null || proxyDefinitions.Count == 0)
                     {
-                        _logger.LogWarning("Proxy refill returned null or empty set. Cancelling refill cycle...");
+                        Logger.LogWarning("Proxy refill returned null or empty set. Cancelling refill cycle...");
                         return;
                     }
 
@@ -82,10 +83,10 @@ namespace ProxyLake.Http.ScheduledActivities
             }
             catch (Exception e)
             {
-                _logger.LogError(e, "Refill cycle failed");
+                Logger.LogError(e, "Refill cycle failed");
             }
             
-            _logger.LogInformation($"[Refill cycle]: {Environment.NewLine}" +
+            Logger.LogInformation($"[Refill cycle]: {Environment.NewLine}" +
                                    $"added: {proxiesAdded}; {Environment.NewLine}" +
                                    $"failed_to_add: {exceptions.Count} {Environment.NewLine}" +
                                    $"alive_before: {aliveProxiesCount} {Environment.NewLine}" +

@@ -1,12 +1,13 @@
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace ProxyLake.Http.Features
 {
     internal class NullHttpProxyHealthCheck : IHttpProxyHealthCheckFeature
     {
-        public bool IsAlive(IHttpProxy proxy, CancellationToken cancellation)
+        public Task<bool> IsAliveAsync(IHttpProxy proxy, CancellationToken cancellation)
         {
-            return true;
+            return Task.FromResult(true);
         }
     }
 }

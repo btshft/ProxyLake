@@ -2,8 +2,8 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ProxyLake.Http.Extensions;
@@ -14,7 +14,7 @@ using ProxyLake.Http.Utils;
 
 namespace ProxyLake.Http
 {
-    // TODO: on-create health check (maybe configurable?), background proxy refill, proxy wait logic, parallel health check (?)
+    // TODO: on-create health check (maybe configurable?), proxy wait logic, parallel health check (?)
     internal class DefaultHttpProxyClientFactory : IHttpProxyClientFactory, IDisposable
     {
         private static readonly TimeSpan DefaultCleanupPeriod = TimeSpan.FromSeconds(15);
@@ -32,9 +32,9 @@ namespace ProxyLake.Http
         private readonly ConcurrentDictionary<string, Lazy<HttpProxyClientState>> _clientStates;
         private readonly ConcurrentDictionary<string, IHttpProxy> _lastAcquiredProxies;
         private readonly ConcurrentQueue<DeadHandlerReference> _deadHandlers;
-
+        private readonly HashSet<HttpProxyDefinition> _proxyDefinitions;
+        
         private readonly HandlersCleanupActivity _cleanupActivity;
-
         public DefaultHttpProxyClientFactory(
             IHttpProxyDefinitionFactory definitionFactory,
             IHttpProxyFactory httpProxyFactory,
@@ -60,18 +60,33 @@ namespace ProxyLake.Http
 
             _deadHandlers = new ConcurrentQueue<DeadHandlerReference>();
             _cleanupActivity = new HandlersCleanupActivity(DefaultCleanupPeriod, _deadHandlers, loggerFactory);
+            _proxyDefinitions = new HashSet<HttpProxyDefinition>();
         }
 
         /// <inheritdoc />
-        public HttpProxyClient CreateClient(string name, CancellationToken cancellation)
+        public async Task<HttpProxyClient> CreateClientAsync(string name, CancellationToken cancellation)
         {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
 
+            if (_proxyDefinitions.Count == 0)
+            {
+                var definitions = await _definitionFactory.CreateDefinitionsAsync(name, cancellation)
+                    .ConfigureAwait(continueOnCapturedContext: false);
+                
+                if (definitions.Count == 0)
+                    throw new Exception($"No definitions were provided by '{_definitionFactory.GetType().Name}'");
+
+                // possible concurrent access but idk
+                if (_proxyDefinitions.Count == 0)
+                    _proxyDefinitions.UnionWith(definitions);
+            }
+            
             if (!_cleanupActivity.IsRunning)
                 _cleanupActivity.Start(cancellation);
 
             var handlerState = AcquireHandlerState(name, cancellation);
+            
             return new HttpProxyClient(handlerState, _loggerFactory);
         }
 
@@ -175,14 +190,14 @@ namespace ProxyLake.Http
             Lazy<HttpProxyClientState> LazyProxyClientState(string _)
             {
                 return new Lazy<HttpProxyClientState>(
-                    () => CreateProxyClientState(name, cancellation),
+                    () => CreateProxyClientState(name),
                     LazyThreadSafetyMode.ExecutionAndPublication);
             }
         }
 
-        private HttpProxyClientState CreateProxyClientState(string name, CancellationToken cancellation)
+        private HttpProxyClientState CreateProxyClientState(string name)
         {
-            var handlerStates = CreateProxyHandlerStates(name, cancellation)
+            var handlerStates = CreateProxyHandlerStates()
                 .AsCopyOnWriteCollection();
 
             var healthCheckFeature = _healthCheckFeatureProvider.GetFeature(name);
@@ -211,16 +226,11 @@ namespace ProxyLake.Http
             return new HttpProxyClientState(handlerStates, healthCheckActivity, refillActivity);
         }
 
-        private List<HttpProxyHandlerState> CreateProxyHandlerStates(
-            string name, CancellationToken cancellation)
+        private List<HttpProxyHandlerState> CreateProxyHandlerStates()
         {
             var handlerStates = new List<HttpProxyHandlerState>();
-            var proxyDefinitions = _definitionFactory.CreateDefinitions(name, cancellation);
-
-            if (proxyDefinitions == null || proxyDefinitions.Count == 0)
-                throw new Exception("Proxy definition factory returned empty result");
-
-            foreach (var definition in proxyDefinitions)
+            
+            foreach (var definition in _proxyDefinitions)
             {
                 var proxy = _httpProxyFactory.CreateProxy(definition);
 

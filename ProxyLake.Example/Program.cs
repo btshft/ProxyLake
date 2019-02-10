@@ -14,22 +14,6 @@ using ProxyLake.Http.Features;
 
 namespace ProxyLake.Example
 {
-    class NullHealthCheck : IHttpProxyHealthCheckFeature
-    {
-        private readonly ILogger _logger;
-
-        public NullHealthCheck(ILoggerFactory loggerFactory)
-        {
-            _logger = loggerFactory.CreateLogger(typeof(NullHealthCheck));
-        }
-
-        public bool IsAlive(IHttpProxy proxy, CancellationToken cancellation)
-        {
-            _logger.LogInformation("Null health check called");
-            return true;
-        }
-    }
-    
     class PingHealthCheck : IHttpProxyHealthCheckFeature
     {
         private readonly ILogger _logger;
@@ -39,7 +23,7 @@ namespace ProxyLake.Example
             _logger = loggerFactory.CreateLogger(typeof(PingHealthCheck));
         }
         
-        public bool IsAlive(IHttpProxy proxy, CancellationToken cancellation)
+        public async Task<bool> IsAliveAsync(IHttpProxy proxy, CancellationToken cancellation)
         {
             using (var ping = new Ping())
             {
@@ -51,7 +35,7 @@ namespace ProxyLake.Example
                     if (!proxy.Address.IsDefaultPort)
                         uriBuilder.Port = -1;
                     
-                    var reply = ping.Send(uriBuilder.Uri.Host, 2000);
+                    var reply = await ping.SendPingAsync(uriBuilder.Uri.Host, 2000);
                     isOk = reply != null && reply.Status == IPStatus.Success;
                 }
                 catch
@@ -71,25 +55,27 @@ namespace ProxyLake.Example
     class TestProxyRefill : IHttpProxyRefill
     {
         /// <inheritdoc />
-        public IReadOnlyCollection<HttpProxyDefinition> GetProxies(
+        public async Task<IReadOnlyCollection<HttpProxyDefinition>> GetProxiesAsync(
             IReadOnlyCollection<IHttpProxy> aliveProxies, int maxProxiesCount, CancellationToken cancellation)
         {
+            await Task.CompletedTask;
+            
             return new[]
             {
                 new HttpProxyDefinition
                 {
-                    Host = "http://167.99.55.83",
-                    Port = 80
+                    Host = "http://91.186.120.116",
+                    Port = 52173
                 },
                 new HttpProxyDefinition
                 {
-                    Host = "http://87.248.171.169",
-                    Port = 44576
+                    Host = "http://222.252.15.114",
+                    Port = 56277
                 },                
                 new HttpProxyDefinition
                 {
-                    Host = "http://167.99.59.251",
-                    Port = 80
+                    Host = "http://68.183.228.133",
+                    Port = 8080
                 }
             };
         }
@@ -97,24 +83,26 @@ namespace ProxyLake.Example
     
     class TestDefinitionProvider : IHttpProxyDefinitionFactory
     {
-        public IReadOnlyCollection<HttpProxyDefinition> CreateDefinitions(string name, CancellationToken cancellation)
+        public async Task<IReadOnlyCollection<HttpProxyDefinition>> CreateDefinitionsAsync(string name, CancellationToken cancellation)
         {
+            await Task.CompletedTask;
+            
             return new[]
             {
                 new HttpProxyDefinition
                 {
-                    Host = "http://167.99.55.84",
+                    Host = "http://35.237.231.146",
                     Port = 80
                 },
                 new HttpProxyDefinition
                 {
-                    Host = "http://87.248.171.168",
-                    Port = 44576
+                    Host = "http://13.230.73.61",
+                    Port = 82
                 },                
                 new HttpProxyDefinition
                 {
-                    Host = "http://167.99.59.250",
-                    Port = 80
+                    Host = "http://212.101.74.68",
+                    Port = 443
                 }
             };
         }
@@ -141,7 +129,7 @@ namespace ProxyLake.Example
             
             var httpProxyFactory = serviceProvider.GetService<IHttpProxyClientFactory>();
             
-            Action action = () =>
+            Func<Task> action = async () =>
             {
                 while (true)
                 {
@@ -153,7 +141,7 @@ namespace ProxyLake.Example
                         {
                             creationSw.Start();
                             
-                            using (var client = httpProxyFactory.CreateDefaultClient(cts.Token))
+                            using (var client = await httpProxyFactory.CreateDefaultClientAsync(cts.Token))
                             {
                                 creationSw.Stop();
                                 requestSw.Start();
@@ -184,16 +172,13 @@ namespace ProxyLake.Example
             };
             
 
-            var threads = new[]
+            var tasks = new[]
             {
-                new Thread(new ThreadStart(action)),
-                new Thread(new ThreadStart(action)),
+                Task.Run(action),
+                Task.Run(action), 
             };
 
-            foreach (var thread in threads)
-            {
-                thread.Start();
-            }
+            await Task.WhenAll(tasks);
         }
     }
 }

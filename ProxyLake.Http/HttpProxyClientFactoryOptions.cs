@@ -2,10 +2,19 @@ using System;
 
 namespace ProxyLake.Http
 {
+    /// <summary>
+    /// Proxy client options.
+    /// </summary>
     public class HttpProxyClientFactoryOptions
     {
+        /// <summary>
+        /// Period to perform proxy health check activity.
+        /// </summary>
         public TimeSpan HealthCheckPeriod { get; set; } = TimeSpan.FromSeconds(30);
         
+        /// <summary>
+        /// Period to perform proxy refill activity.
+        /// </summary>
         public TimeSpan ProxyRefillPeriod { get; set; } = TimeSpan.FromSeconds(30);
         
         /// <summary>

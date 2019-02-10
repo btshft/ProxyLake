@@ -1,28 +1,33 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace ProxyLake.Http.ScheduledActivities
 {
-    internal abstract class ScheduledActivity : IScheduledActivity, IDisposable
+    internal abstract class ScheduledActivity : IScheduledActivity
     {
-        private readonly object _lock;
-        private readonly TimeSpan _period;
-        private readonly TimeSpan _dueTime;
+        protected readonly ILogger Logger;
+        protected readonly TimeSpan Period;
+        protected readonly TimeSpan DueTime;
         
+        private readonly object _lock;
+ 
         private Timer _taskTimer;
         private bool _isRunning;
         private CancellationToken _cancellationToken;
 
         public bool IsRunning => _isRunning;
 
-        protected ScheduledActivity(TimeSpan period)
-            : this(TimeSpan.Zero, period)
+        protected ScheduledActivity(TimeSpan period, ILogger logger)
+            : this(TimeSpan.Zero, period, logger)
         { }
         
-        protected ScheduledActivity(TimeSpan dueTime, TimeSpan period)
+        protected ScheduledActivity(TimeSpan dueTime, TimeSpan period, ILogger logger)
         {
-            _period = period;
-            _dueTime = dueTime;
+            Period = period;
+            Logger = logger;
+            DueTime = dueTime;
             _lock = new object();
         }
 
@@ -34,7 +39,7 @@ namespace ProxyLake.Http.ScheduledActivities
                     return;
 
                 _cancellationToken = cancellation;
-                _taskTimer = CreateTimer(TimerTick, this, _dueTime, _period);
+                _taskTimer = CreateTimer(TimerTick, this, DueTime, Period);
                 Volatile.Write(ref _isRunning, true);
             }
         }
@@ -51,9 +56,9 @@ namespace ProxyLake.Http.ScheduledActivities
             }
         }
 
-        protected abstract void Execute(CancellationToken cancellation);
+        protected abstract Task ExecuteAsync(CancellationToken cancellation);
 
-        private static void TimerTick(object state)
+        private static async void TimerTick(object state)
         {
             var activity = (ScheduledActivity) state;
             if (activity._cancellationToken.IsCancellationRequested)
@@ -63,7 +68,17 @@ namespace ProxyLake.Http.ScheduledActivities
             }
             else
             {
-                activity.Execute(activity._cancellationToken);
+                try
+                {
+                    await activity.ExecuteAsync(activity._cancellationToken)
+                        .ConfigureAwait(continueOnCapturedContext: true);
+                }
+                catch (Exception e)
+                {
+                    activity.Logger.LogError(e, $"[Activity '{activity.GetType().Name}' fatal exception]: {e.Message}");
+                    activity._taskTimer.Dispose();
+                    activity._taskTimer = null;
+                }
             }
         }
 

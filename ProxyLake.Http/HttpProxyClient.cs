@@ -5,6 +5,9 @@ using ProxyLake.Http.Logging;
 
 namespace ProxyLake.Http
 {
+    /// <summary>
+    /// Http proxy client.
+    /// </summary>
     public class HttpProxyClient : HttpClient
     {
         private readonly WeakReference<HttpProxyState> _httpProxyState;
@@ -17,6 +20,9 @@ namespace ProxyLake.Http
             _logger = loggerFactory.CreateLogger($"{nameof(HttpProxyClient)}");
         }
 
+        /// <summary>
+        /// Return current active proxy.
+        /// </summary>
         public bool TryGetProxy(out IHttpProxy proxy)
         {
             proxy = null;

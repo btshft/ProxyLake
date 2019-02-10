@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ProxyLake.Http.Logging;
 
@@ -9,20 +10,18 @@ namespace ProxyLake.Http.ScheduledActivities
     internal class HandlersCleanupActivity : ScheduledActivity
     {
         private readonly ConcurrentQueue<DeadHandlerReference> _handlers;
-        private readonly ILogger _logger;
-
+        
         public HandlersCleanupActivity(
             TimeSpan period,
             ConcurrentQueue<DeadHandlerReference> handlers,
             IHttpProxyLoggerFactory loggerFactory) 
-            : base(period)
+            : base(period, loggerFactory.CreateLogger(typeof(HandlersCleanupActivity)))
         {
             _handlers = handlers;
-            _logger = loggerFactory.CreateLogger(typeof(HandlersCleanupActivity));
         }
 
         /// <inheritdoc />
-        protected override void Execute(CancellationToken cancellation)
+        protected override Task ExecuteAsync(CancellationToken cancellation)
         {
             int collected = 0,
                 handlersCount = _handlers.Count;
@@ -31,7 +30,7 @@ namespace ProxyLake.Http.ScheduledActivities
             {
                 if (!_handlers.TryDequeue(out var deadHandler))
                 {
-                    _logger.LogDebug("Unable to get handler from queue");
+                    Logger.LogDebug("Unable to get handler from queue");
                 }
 
                 var proxyId = deadHandler.Proxy?.Id;
@@ -39,7 +38,7 @@ namespace ProxyLake.Http.ScheduledActivities
                 if (!deadHandler.IsCollectedByGC)
                 {
                     _handlers.Enqueue(deadHandler);
-                    _logger.LogDebug(
+                    Logger.LogDebug(
                         $"Unable to collect handler with proxy '{proxyId}' - it's still in use");
                 }
                 else
@@ -49,19 +48,20 @@ namespace ProxyLake.Http.ScheduledActivities
                         deadHandler.Inner.Dispose();
                         collected++;
                         
-                        _logger.LogDebug($"Proxy with id '{proxyId}' collected by GC. Related handler was disposed.");
+                        Logger.LogDebug($"Proxy with id '{proxyId}' collected by GC. Related handler was disposed.");
                     }
                     catch (Exception e)
                     {
-                        // log
-                        _logger.LogDebug(
+                        Logger.LogDebug(
                             $"Unable to collect handler with proxy '{proxyId}' - exception occured: {e}");
                         
                     }
                 }
             }
 
-            _logger.LogInformation($"[Cleanup cycle] dead ref count: {handlersCount}; GC collected: {collected}; ");  
+            Logger.LogInformation($"[Cleanup cycle] dead ref count: {handlersCount}; GC collected: {collected}; ");
+            
+            return Task.CompletedTask;
         }
     }
 }
