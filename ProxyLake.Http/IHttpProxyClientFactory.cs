@@ -5,6 +5,6 @@ namespace ProxyLake.Http
 {
     public interface IHttpProxyClientFactory
     {
-        HttpClient CreateClient(string name, CancellationToken cancellation);
+        HttpProxyClient CreateClient(string name, CancellationToken cancellation);
     }
 }

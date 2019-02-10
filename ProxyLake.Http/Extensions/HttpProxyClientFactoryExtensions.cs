@@ -6,7 +6,7 @@ namespace ProxyLake.Http.Extensions
 {
     public static class HttpProxyClientFactoryExtensions
     {
-        public static HttpClient CreateDefaultClient(
+        public static HttpProxyClient CreateDefaultClient(
             this IHttpProxyClientFactory factory, CancellationToken cancellation = default)
         {
             return factory.CreateClient(Options.DefaultName, cancellation);

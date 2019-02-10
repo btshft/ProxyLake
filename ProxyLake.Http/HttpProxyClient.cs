@@ -5,18 +5,31 @@ using ProxyLake.Http.Logging;
 
 namespace ProxyLake.Http
 {
-    internal class HttpProxyClient : HttpClient
+    public class HttpProxyClient : HttpClient
     {
         private readonly WeakReference<HttpProxyState> _httpProxyState;
         private readonly ILogger _logger;
         
-        public HttpProxyClient(HttpProxyHandlerState state, IHttpProxyLoggerFactory loggerFactory)
+        internal HttpProxyClient(HttpProxyHandlerState state, IHttpProxyLoggerFactory loggerFactory)
             : base(state.Handler, disposeHandler: false)
         {
             _httpProxyState = new WeakReference<HttpProxyState>(state.ProxyState);
             _logger = loggerFactory.CreateLogger($"{nameof(HttpProxyClient)}");
         }
 
+        public bool TryGetProxy(out IHttpProxy proxy)
+        {
+            proxy = null;
+            
+            if (_httpProxyState.TryGetTarget(out var state) && state.Proxy != null)
+            {
+                proxy = new HttpProxy(state.Proxy);
+                return true;
+            }
+
+            return false;
+        }
+        
         /// <inheritdoc />
         protected override void Dispose(bool disposing)
         {

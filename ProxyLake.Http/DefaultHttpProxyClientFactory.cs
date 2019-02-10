@@ -63,7 +63,7 @@ namespace ProxyLake.Http
         }
 
         /// <inheritdoc />
-        public HttpClient CreateClient(string name, CancellationToken cancellation)
+        public HttpProxyClient CreateClient(string name, CancellationToken cancellation)
         {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
